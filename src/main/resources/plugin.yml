@@ -1,0 +1,21 @@
+name: MobSweeper
+version: ${project.version}
+description: A mob management plugin
+author: jgeboski
+main: org.jgeboski.mobsweeper.MobSweeper
+
+commands:
+  mobsweeper:
+    description: MobSweeper management
+    aliases: [msweep, msweeper]
+    usage: /<command> reload
+
+permissions:
+  mobsweeper.manage:
+    description: Access to the mobsweeper command
+    default: op
+  mobsweeper.manage.reload:
+    description: Reload MobSweeper
+    default: op
+    children:
+      mobsweeper.manage: true

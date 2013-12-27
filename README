@@ -1,0 +1,15 @@
+MobSweeper is a full featured mob management plugin for Bukkit based
+Minecraft servers.
+
+Features:
+  - Region/world based mob sweeping
+  - Preventing mobs from spawning
+
+Commands:
+  - /mobsweeper: MobSweeper management
+    aliases: msweep, msweeper
+    usage: /<command> reload
+
+Permissions:
+  - mobsweeper.manage:        Access to the mobsweeper command.
+  - mobsweeper.manage.reload: Reload MobSweeper.
