@@ -1,0 +1,32 @@
+# Regions are virtual areas or ranges on a map where action will be
+# taken by the plugin. Regions must be manually defined in a map-list
+# format.
+regions:
+  ## Example region configuration
+  #
+  #  # The radius, in blocks, of the region.
+  #  # If `radius` is 0, the region becomes the entire world.
+  #- radius: 10
+  #
+  #  # The maximum amount of allowed mobs in a region.
+  #  maximum: 50
+  #
+  #  # The time, in ticks, a dead entity remains part of a sub-region.
+  #  # If `death` is 0, the death function is disabled.
+  #  death: 6000
+  #
+  #  # The time, in ticks, between the sweep of each sub-region.
+  #  # If `sweep` is 0, the sweep function is disabled.
+  #  sweep: 0
+  #
+  #  # If `chunked` is true, then all action will be handled on a
+  #  # per-chunk basis in sub-regions.
+  #  chunked: false
+  #
+  #  # The worlds affected by the region.
+  #  # If `worlds` is an empty list, all worlds are affected.
+  #  worlds: [world, world_nether]
+  #
+  #  # The mob types affected by the region.
+  #  # If `mobs` is an empty list, all mob types are affected.
+  #  mobs: [blaze, skeleton, zombie]

@@ -39,7 +39,15 @@ public class MobSweeper extends JavaPlugin
     {
         Log.init(getLogger());
         Message.init(getDescription().getName());
-        config.load();
+
+        if (!config.file.exists())
+            saveResource("config.yml", false);
+
+        try {
+            config.load();
+        } catch (MobSweeperException e) {
+            Log.severe("Failed to load configuration: %s", e.getMessage());
+        }
 
         getCommand("mobsweeper").setExecutor(new CMobSweeper(this));
     }
