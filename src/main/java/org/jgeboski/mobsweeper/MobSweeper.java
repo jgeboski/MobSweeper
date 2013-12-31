@@ -23,6 +23,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.plugin.PluginManager;
 
 import org.jgeboski.mobsweeper.command.CMobSweeper;
+import org.jgeboski.mobsweeper.region.Region;
 import org.jgeboski.mobsweeper.util.Log;
 import org.jgeboski.mobsweeper.util.Message;
 
@@ -50,11 +51,15 @@ public class MobSweeper extends JavaPlugin
         }
 
         getCommand("mobsweeper").setExecutor(new CMobSweeper(this));
+
+        for (Region r : config.regions)
+            r.init(this);
     }
 
     public void onDisable()
     {
-
+        for (Region r : config.regions)
+            r.close(this);
     }
 
     public void reload()

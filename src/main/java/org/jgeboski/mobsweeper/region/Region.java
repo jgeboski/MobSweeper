@@ -18,15 +18,29 @@
 package org.jgeboski.mobsweeper.region;
 
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
+import org.bukkit.entity.Creature;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.HandlerList;
+import org.bukkit.event.Listener;
+import org.bukkit.Location;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.PluginManager;
+import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.World;
 
 import org.jgeboski.mobsweeper.MobSweeperException;
 
-public class Region
+public class Region implements Listener, Runnable
 {
     public int     radius;
     public int     maximum;
@@ -37,6 +51,10 @@ public class Region
     public HashSet<String>     worlds;
     public HashSet<EntityType> mobs;
 
+    protected LinkedList<SubRegion> subregions;
+
+    private int taskid;
+
     public Region()
     {
         this.radius  = 0;
@@ -46,12 +64,74 @@ public class Region
         this.chunked = false;
         this.worlds  = new HashSet<String>();
         this.mobs    = new HashSet<EntityType>();
+
+        this.subregions = new LinkedList<SubRegion>();
+        this.taskid     = -1;
+    }
+
+    public void init(Plugin plugin)
+    {
+        BukkitScheduler bs;
+        PluginManager   pm;
+        String          wn;
+
+        if (radius < 1) {
+            for (World w : Bukkit.getWorlds()) {
+                wn = w.getName();
+
+                if (worlds.contains(wn))
+                    subregions.add(new SubRegion(this, wn, 0, 0, true));
+            }
+        }
+
+        if (death > 0) {
+            pm = plugin.getServer().getPluginManager();
+            pm.registerEvents(this, plugin);
+        }
+
+        if (sweep > 0) {
+            bs     = plugin.getServer().getScheduler();
+            taskid = bs.scheduleSyncRepeatingTask(plugin, this, sweep, sweep);
+        }
+    }
+
+    public void close(Plugin plugin)
+    {
+        BukkitScheduler bs;
+
+        if (taskid >= 0) {
+            bs = plugin.getServer().getScheduler();
+            bs.cancelTask(taskid);
+            taskid = -1;
+        }
+
+        for (HandlerList h : HandlerList.getHandlerLists())
+            h.unregister(this);
+
+        subregions.clear();
+    }
+
+    public void refresh()
+    {
+        Iterator<SubRegion> iter;
+        SubRegion           regn;
+
+        iter = subregions.iterator();
+
+        while (iter.hasNext()) {
+            regn = iter.next();
+            regn.refresh();
+
+            if (!regn.permanent && (regn.chunks.size() < 1))
+                iter.remove();
+        }
     }
 
     public void setMobs(List<String> mobs)
         throws MobSweeperException
     {
         EntityType type;
+        Class      klass;
 
         this.mobs.clear();
 
@@ -64,7 +144,9 @@ public class Region
                 throw new MobSweeperException("Unknown mob: %s", m);
             }
 
-            if (!type.isAlive())
+            klass = type.getEntityClass();
+
+            if ((klass == null) || !Creature.class.isAssignableFrom(klass))
                 throw new MobSweeperException("Unsupported mob: %s", m);
 
             this.mobs.add(type);
@@ -74,7 +156,9 @@ public class Region
             return;
 
         for (EntityType t : EntityType.values()) {
-            if (t.isAlive())
+            klass = t.getEntityClass();
+
+            if ((klass != null) && Creature.class.isAssignableFrom(klass))
                 this.mobs.add(t);
         }
     }
@@ -101,5 +185,83 @@ public class Region
 
         for (World w : Bukkit.getWorlds())
             this.worlds.add(w.getName());
+    }
+
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
+    public void onEntityDeath(EntityDeathEvent event)
+    {
+        SubRegion regn;
+        Entity    entity;
+        Location  l;
+        String    w;
+        int       handled;
+        int       x;
+        int       y;
+
+        entity  = event.getEntity();
+        handled = 0;
+
+        if (!worlds.contains(entity.getWorld().getName()))
+            return;
+
+        if (!mobs.contains(entity.getType()))
+            return;
+
+        for (SubRegion r : subregions) {
+            if (r.register(entity, death))
+                handled++;
+        }
+
+        if (handled < 1) {
+            l = entity.getLocation();
+            w = entity.getWorld().getName();
+            x = (int) l.getX();
+            y = (int) l.getZ();
+
+            regn = new SubRegion(this, w, x, y);
+            regn.register(entity, death);
+            subregions.add(regn);
+        }
+
+        for (SubRegion r : subregions) {
+            r.refresh();
+
+            if (!r.spawnable(entity)) {
+                event.getDrops().clear();
+                event.setDroppedExp(0);
+                break;
+            }
+        }
+
+        refresh();
+    }
+
+    public void run()
+    {
+        for (World w : Bukkit.getWorlds()) {
+            if (!worlds.contains(w.getName()))
+                continue;
+
+            for (Chunk c : w.getLoadedChunks()) {
+                for (Entity e : c.getEntities()) {
+                    if (!mobs.contains(e.getType()))
+                        continue;
+
+                    for (SubRegion r : subregions) {
+                        if (!r.register(e, 0))
+                            continue;
+
+                        if (!r.spawnable(e)) {
+                            e.remove();
+                            break;
+                        }
+                    }
+                }
+
+                refresh();
+            }
+        }
+
+        refresh();
     }
 }
