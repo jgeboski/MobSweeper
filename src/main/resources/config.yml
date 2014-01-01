@@ -11,9 +11,9 @@ regions:
   #  # The maximum amount of allowed mobs in a region.
   #  maximum: 50
   #
-  #  # The time, in ticks, a dead entity remains part of a sub-region.
-  #  # If `death` is 0, the death function is disabled.
-  #  death: 6000
+  #  # The time, in ticks, an event entity remains part of a sub-region.
+  #  # If `event` is 0, the event function is disabled.
+  #  event: 6000
   #
   #  # The time, in ticks, between the sweep of each sub-region.
   #  # If `sweep` is 0, the sweep function is disabled.
@@ -22,6 +22,15 @@ regions:
   #  # If `chunked` is true, then all action will be handled on a
   #  # per-chunk basis in sub-regions.
   #  chunked: false
+  #
+  #  # The Events causing entity registration in the region.
+  #  # If `registers` is an empty list, no events will register
+  #  # an entity.
+  #  registers: [EntityDeath]
+  #
+  #  # The Events to cancel when `maximum` is reached.
+  #  # If `cancels` is an empty list, no events are canceled.
+  #  cancels: [CreatureSpawn, EntityDeath]
   #
   #  # The worlds affected by the region.
   #  # If `worlds` is an empty list, all worlds are affected.

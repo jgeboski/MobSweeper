@@ -56,10 +56,12 @@ public class Configuration extends YamlConfiguration
 
                 regn.radius  = getMapInt(map, "radius");
                 regn.maximum = getMapInt(map, "maximum");
-                regn.death   = getMapLong(map, "death");
+                regn.event   = getMapLong(map, "event");
                 regn.sweep   = getMapLong(map, "sweep");
                 regn.chunked = getMapBoolean(map, "chunked");
 
+                regn.setRegisters(getMapStringList(map, "registers"));
+                regn.setCancels(getMapStringList(map, "cancels"));
                 regn.setWorlds(getMapStringList(map, "worlds"));
                 regn.setMobs(getMapStringList(map, "mobs"));
 

@@ -27,7 +27,8 @@ import org.bukkit.Chunk;
 import org.bukkit.entity.Creature;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
-import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.Cancellable;
+import org.bukkit.event.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
@@ -44,10 +45,12 @@ public class Region implements Listener, Runnable
 {
     public int     radius;
     public int     maximum;
-    public long    death;
+    public long    event;
     public long    sweep;
     public boolean chunked;
 
+    public HashSet<Class>      cancels;
+    public HashSet<Class>      registers;
     public HashSet<String>     worlds;
     public HashSet<EntityType> mobs;
 
@@ -57,13 +60,15 @@ public class Region implements Listener, Runnable
 
     public Region()
     {
-        this.radius  = 0;
-        this.maximum = 0;
-        this.death   = 0;
-        this.sweep   = 0;
-        this.chunked = false;
-        this.worlds  = new HashSet<String>();
-        this.mobs    = new HashSet<EntityType>();
+        this.radius    = 0;
+        this.maximum   = 0;
+        this.event     = 0;
+        this.sweep     = 0;
+        this.chunked   = false;
+        this.cancels   = new HashSet<Class>();
+        this.registers = new HashSet<Class>();
+        this.worlds    = new HashSet<String>();
+        this.mobs      = new HashSet<EntityType>();
 
         this.subregions = new LinkedList<SubRegion>();
         this.taskid     = -1;
@@ -84,7 +89,7 @@ public class Region implements Listener, Runnable
             }
         }
 
-        if (death > 0) {
+        if (event > 0) {
             pm = plugin.getServer().getPluginManager();
             pm.registerEvents(this, plugin);
         }
@@ -124,6 +129,48 @@ public class Region implements Listener, Runnable
 
             if (!regn.permanent && (regn.chunks.size() < 1))
                 iter.remove();
+        }
+    }
+
+    public void setCancels(List<String> cancels)
+        throws MobSweeperException
+    {
+        setEventSet(this.cancels, cancels);
+    }
+
+    public void setRegisters(List<String> registers)
+        throws MobSweeperException
+    {
+        setEventSet(this.registers, registers);
+    }
+
+    private void setEventSet(HashSet<Class> set, List<String> events)
+        throws MobSweeperException
+    {
+        String event;
+        Class  klass;
+
+        set.clear();
+
+        for (String e : events) {
+            event = String.format("org.bukkit.event.entity.%sEvent", e);
+
+            try {
+                klass = Class.forName(event);
+            } catch (ClassNotFoundException ex) {
+                throw new MobSweeperException("Unknown event: %s", e);
+            }
+
+            try {
+                getClass().getDeclaredMethod("onEntityEvent", klass);
+
+                if (!EntityEvent.class.isAssignableFrom(klass))
+                    throw new NoSuchMethodException();
+            } catch (NoSuchMethodException ex) {
+                throw new MobSweeperException("Unsupported event: %s", e);
+            }
+
+            set.add(klass);
         }
     }
 
@@ -187,19 +234,19 @@ public class Region implements Listener, Runnable
             this.worlds.add(w.getName());
     }
 
-    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
-    public void onEntityDeath(EntityDeathEvent event)
+    public void entityEvent(EntityEvent event)
     {
         SubRegion regn;
         Entity    entity;
         Location  l;
         String    w;
-        int       handled;
+        boolean   spawnable;
+        int       conts;
+        int       regis;
         int       x;
         int       y;
 
-        entity  = event.getEntity();
-        handled = 0;
+        entity = event.getEntity();
 
         if (!worlds.contains(entity.getWorld().getName()))
             return;
@@ -207,29 +254,51 @@ public class Region implements Listener, Runnable
         if (!mobs.contains(entity.getType()))
             return;
 
-        for (SubRegion r : subregions) {
-            if (r.register(entity, death))
-                handled++;
+        if (registers.contains(event.getClass())) {
+            conts = regis = 0;
+
+            for (SubRegion r : subregions) {
+                r.refresh();
+
+                if (r.contains(entity))
+                    conts++;
+                else if (r.register(entity, this.event))
+                    regis++;
+            }
+
+            if ((conts < 1) && (regis < 1)) {
+                l = entity.getLocation();
+                w = entity.getWorld().getName();
+                x = (int) l.getX();
+                y = (int) l.getZ();
+
+                regn = new SubRegion(this, w, x, y);
+                regn.register(entity, this.event);
+                subregions.add(regn);
+            }
         }
 
-        if (handled < 1) {
-            l = entity.getLocation();
-            w = entity.getWorld().getName();
-            x = (int) l.getX();
-            y = (int) l.getZ();
+        if (cancels.contains(event.getClass())) {
+            spawnable = true;
 
-            regn = new SubRegion(this, w, x, y);
-            regn.register(entity, death);
-            subregions.add(regn);
-        }
+            for (SubRegion r : subregions) {
+                r.refresh();
 
-        for (SubRegion r : subregions) {
-            r.refresh();
+                if (!r.spawnable(entity)) {
+                    spawnable = false;
+                    break;
+                }
+            }
 
-            if (!r.spawnable(entity)) {
-                event.getDrops().clear();
-                event.setDroppedExp(0);
-                break;
+            if (spawnable)
+                return;
+
+            if (event instanceof Cancellable) {
+                ((Cancellable) event).setCancelled(true);
+            } else if (event instanceof EntityDeathEvent) {
+                EntityDeathEvent e = (EntityDeathEvent) event;
+                e.getDrops().clear();
+                e.setDroppedExp(0);
             }
         }
 
@@ -238,6 +307,8 @@ public class Region implements Listener, Runnable
 
     public void run()
     {
+        refresh();
+
         for (World w : Bukkit.getWorlds()) {
             if (!worlds.contains(w.getName()))
                 continue;
@@ -264,4 +335,144 @@ public class Region implements Listener, Runnable
 
         refresh();
     }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(CreatureSpawnEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(CreeperPowerEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityBreakDoorEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityChangeBlockEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityCombustByBlockEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityCombustByEntityEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityCombustEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityCreatePortalEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityDamageByBlockEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityDamageByEntityEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityDamageEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityDeathEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityExplodeEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityInteractEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityPortalEnterEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityPortalEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityPortalExitEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityRegainHealthEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityShootBowEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityTameEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityTargetEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityTargetLivingEntityEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityTeleportEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(EntityUnleashEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(ExpBottleEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(ExplosionPrimeEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(FoodLevelChangeEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(HorseJumpEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(PigZapEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(PotionSplashEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(ProjectileHitEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(ProjectileLaunchEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(SheepDyeWoolEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(SheepRegrowWoolEvent event)
+    { entityEvent(event); }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onEntityEvent(SlimeSplitEvent event)
+    { entityEvent(event); }
 }
